@@ -1,0 +1,203 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String              @id @default(cuid())
+  email                String              @unique
+  name                 String
+  passwordHash         String
+  role                 String              @default("ADMIN")
+  active               Boolean             @default(true)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  audits               AuditLog[]
+  employeeScopes       UserEmployeeScope[]
+  issuedQrCredentials  QrCredential[]      @relation("QrIssuedBy")
+  revokedQrCredentials QrCredential[]      @relation("QrRevokedBy")
+  provisionedTerminals PunchTerminal[]     @relation("TerminalProvisionedBy")
+  createdSchedules     WorkSchedule[]      @relation("ScheduleCreatedBy")
+  requestedAttendance  AttendanceRequest[] @relation("AttendanceRequestedBy")
+  reviewedAttendance   AttendanceRequest[] @relation("AttendanceReviewedBy")
+  voidedPunchEvents    PunchEvent[]        @relation("PunchVoidedBy")
+
+  @@index([role, active])
+}
+
+model Department {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  employees Employee[]
+}
+
+model Employee {
+  id                 String              @id @default(cuid())
+  registration       String              @unique
+  name               String
+  cpf                String?             @unique
+  jobTitle           String?
+  departmentId       String?
+  department         Department?         @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  status             String              @default("ACTIVE")
+  admissionDate      DateTime?
+  terminationDate    DateTime?
+  notes              String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  qrCredentials      QrCredential[]
+  punches            PunchEvent[]
+  scopes             UserEmployeeScope[]
+  workSchedules      WorkSchedule[]
+  attendanceRequests AttendanceRequest[]
+
+  @@index([name])
+  @@index([departmentId, status])
+  @@index([status, admissionDate])
+}
+
+model PunchTerminal {
+  id          String       @id @default(cuid())
+  name        String
+  tokenHash   String       @unique
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  createdById String
+  createdBy   User         @relation("TerminalProvisionedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  lastSeenAt  DateTime?
+  revokedAt   DateTime?
+  punches     PunchEvent[]
+
+  @@index([active, createdAt])
+}
+
+model UserEmployeeScope {
+  userId     String
+  employeeId String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, employeeId])
+  @@index([employeeId])
+}
+
+model QrCredential {
+  id               String    @id @default(cuid())
+  employeeId       String
+  employee         Employee  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  tokenHash        String    @unique
+  encryptedToken   String
+  activeEmployeeId String?   @unique
+  status           String    @default("ACTIVE")
+  issuedAt         DateTime  @default(now())
+  issuedById       String
+  issuedBy         User      @relation("QrIssuedBy", fields: [issuedById], references: [id], onDelete: Restrict)
+  revokedAt        DateTime?
+  revokedById      String?
+  revokedBy        User?     @relation("QrRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([employeeId, issuedAt])
+  @@index([status])
+}
+
+model PunchEvent {
+  id             String              @id @default(cuid())
+  employeeId     String
+  employee       Employee            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  eventType      String
+  recordedAt     DateTime            @default(now())
+  source         String
+  voidedAt       DateTime?
+  voidReason     String?
+  voidedById     String?
+  voidedBy       User?               @relation("PunchVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+  terminalId     String?
+  terminal       PunchTerminal?      @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  idempotencyKey String              @unique
+  createdAt      DateTime            @default(now())
+  targetRequests AttendanceRequest[] @relation("AttendanceTargetEvent")
+  resultRequests AttendanceRequest[] @relation("AttendanceResultEvent")
+
+  @@index([employeeId, recordedAt])
+  @@index([employeeId, terminalId, recordedAt])
+  @@index([recordedAt])
+  @@index([employeeId, voidedAt, recordedAt])
+}
+
+model WorkSchedule {
+  id            String            @id @default(cuid())
+  employeeId    String
+  employee      Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  effectiveFrom DateTime
+  createdAt     DateTime          @default(now())
+  createdById   String?
+  createdBy     User?             @relation("ScheduleCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  days          WorkScheduleDay[]
+
+  @@unique([employeeId, effectiveFrom])
+  @@index([employeeId, effectiveFrom])
+}
+
+model WorkScheduleDay {
+  id             String       @id @default(cuid())
+  scheduleId     String
+  schedule       WorkSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  dayOfWeek      Int
+  startTime      String?
+  breakStartTime String?
+  breakEndTime   String?
+  endTime        String?
+
+  @@unique([scheduleId, dayOfWeek])
+}
+
+model AttendanceRequest {
+  id                 String      @id @default(cuid())
+  employeeId         String
+  employee           Employee    @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  requestedById      String
+  requestedBy        User        @relation("AttendanceRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  type               String
+  status             String      @default("PENDING")
+  targetEventId      String?
+  targetEvent        PunchEvent? @relation("AttendanceTargetEvent", fields: [targetEventId], references: [id], onDelete: Restrict)
+  resultEventId      String?     @unique
+  resultEvent        PunchEvent? @relation("AttendanceResultEvent", fields: [resultEventId], references: [id], onDelete: Restrict)
+  targetEventType    String?
+  targetRecordedAt   DateTime?
+  proposedEventType  String?
+  proposedRecordedAt DateTime?
+  targetDate         DateTime?
+  minutes            Int?
+  reason             String
+  reviewedById       String?
+  reviewedBy         User?       @relation("AttendanceReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt         DateTime?
+  reviewComment      String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([status, createdAt])
+  @@index([employeeId, targetDate])
+  @@index([requestedById, createdAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  actor       User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action      String
+  entityType  String
+  entityId    String
+  detailsJson String
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+}
