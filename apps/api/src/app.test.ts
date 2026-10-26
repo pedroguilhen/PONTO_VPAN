@@ -517,6 +517,18 @@ describe("administrative API", () => {
       payload: { reason: "Gestor não pode anular diretamente." }
     });
     expect(managerDirectVoid.statusCode).toBe(403);
+    for (const reason of ["", "curto", "          "]) {
+      const invalidVoid = await app.inject({
+        method: "DELETE",
+        url: `/api/employees/${employeeId}/punches/${forgottenEvent!.id}`,
+        headers: { authorization },
+        payload: { reason }
+      });
+      expect(invalidVoid.statusCode).toBe(400);
+      expect(
+        (await prisma.punchEvent.findUnique({ where: { id: forgottenEvent!.id } }))?.voidedAt
+      ).toBeNull();
+    }
     const adminVoid = await app.inject({
       method: "DELETE",
       url: `/api/employees/${employeeId}/punches/${forgottenEvent!.id}`,

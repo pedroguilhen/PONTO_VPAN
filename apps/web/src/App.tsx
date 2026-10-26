@@ -779,13 +779,22 @@ function EmployeeDetails({ isAdmin }: { isAdmin: boolean }) {
   }
 
   async function voidPunch() {
-    if (!employeeId || !punchAction || !selectedPunchId) return;
+    if (!employeeId || !punchAction || savingAction) return;
+    if (!selectedPunchId) {
+      setError("Selecione a marcação que deseja descartar.");
+      return;
+    }
+    const reason = actionReason.trim();
+    if (reason.length < 10 || reason.length > 500) {
+      setError("Para descartar a marcação, informe uma justificativa entre 10 e 500 caracteres.");
+      return;
+    }
     setSavingAction(true);
     setError("");
     try {
       await apiRequest(`/employees/${employeeId}/punches/${selectedPunchId}`, {
         method: "DELETE",
-        body: JSON.stringify({ reason: actionReason })
+        body: JSON.stringify({ reason })
       });
       setPunchAction(null);
       await loadEmployee();
@@ -1225,11 +1234,15 @@ function EmployeeDetails({ isAdmin }: { isAdmin: boolean }) {
                 <textarea
                   value={actionReason}
                   onChange={(event) => setActionReason(event.target.value)}
+                  aria-describedby="punch-action-reason-help"
                   minLength={10}
                   maxLength={500}
                   rows={3}
                   required
                 />
+                <small id="punch-action-reason-help">
+                  Obrigatório para corrigir ou descartar: entre 10 e 500 caracteres.
+                </small>
               </label>
               {error && (
                 <p className="form-error" role="alert">
@@ -1241,7 +1254,7 @@ function EmployeeDetails({ isAdmin }: { isAdmin: boolean }) {
                   <button
                     className="danger-button"
                     type="button"
-                    disabled={savingAction || !selectedPunchId || actionReason.trim().length < 10}
+                    disabled={savingAction}
                     onClick={() => void voidPunch()}
                   >
                     Descartar marcação
